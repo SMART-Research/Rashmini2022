@@ -1,0 +1,531 @@
+---
+title: "Show My Data"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(plotly)
+library(summarytools)
+library(visdat)
+library(skimr)
+
+#word clouds
+library("tm")
+library("SnowballC")
+library("wordcloud")
+library("RColorBrewer")
+
+```
+
+Data Overview
+======================================================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+Upload your csv file here. 
+
+```{r}
+fileInput("file", "Choose CSV File",
+                multiple = FALSE,
+                accept = c("text/csv",
+                         "text/comma-separated-values,text/plain",
+                         ".csv"))
+```
+
+
+Row 
+-----------------------------------------------------------------------
+### Total Data Records
+```{r}
+renderValueBox({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  valueBox(nrow(df),icon="fa-database")
+})
+```
+
+### Total Missing values (Click Me!)
+
+```{r}
+renderValueBox({
+req(input$file)
+df <- read_csv(input$file$datapath)
+na_count <- sum(is.na(df))
+valueBox(na_count, 
+         href= "#section-missing-values",
+         icon = "fa-exclamation",
+         color = ifelse(na_count > 0, "danger", "primary"))
+})
+```
+
+
+
+
+Row
+---------------------------------------------------------
+### Total Variables
+```{r}
+renderValueBox({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  valueBox(ncol(df),color = "info", icon="fa-list-alt")
+})
+```
+
+
+
+### Quantitative Variables
+```{r}
+renderValueBox({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  valueBox(ncol(df %>% select_if(is.numeric)),color = "info", icon="fa-sort-numeric-up")
+})
+```
+
+### Qualitative Variables
+```{r}
+renderValueBox({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  valueBox(ncol(df %>% select_if(is.character)),color = "info", icon="fa-sort-alpha-up")
+})
+```
+
+
+
+Row
+---------------------------------------------------------
+
+### Dataset Preview
+
+```{r}
+DT::renderDataTable({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  DT::datatable(df, rownames = TRUE,options = list(bPaginate = TRUE, searching = TRUE, info = FALSE),fillContainer = TRUE)
+})
+```
+
+Summary Statistics
+========================================================
+Row
+-----------------------------------------------------------------------
+
+### Let's refresh our memory on variable types...
+```{r}
+renderValueBox({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  valueBox("Click Me!",href= "#section-help" ,color = "info", icon="ion-android-happy")
+})
+```
+
+Row
+-----------------------------------------------------------------------
+
+### List of Variables
+
+```{r}
+
+
+renderTable({
+  
+  req(input$file)
+df <- read_csv(input$file$datapath)
+#df[sapply(df, is.character)] <- lapply(df[sapply(df, is.character)], as.factor)
+
+
+df <- df %>% 
+  mutate_if(function(col){
+    if(is.character(col) & length(unique(col)) < 10){
+      return(TRUE)
+    }else{
+      return(FALSE)
+    }
+  },factor)
+
+
+  `Qualitative Variables` <- colnames(df %>% select_if(is.character))
+  `Categorical Variables` <- colnames(df %>% select_if(is.factor))
+  `Quantitative Variables` <- colnames(df %>% select_if(is.numeric))
+  
+  max_len <- max(length(`Qualitative Variables`), length(`Categorical Variables`), 
+                 length(`Quantitative Variables`))
+  
+  `Qualitative Variables` <- c(`Qualitative Variables`, rep(c(""), max_len - length(`Qualitative Variables`)))
+  
+  `Quantitative Variables` <- c(`Quantitative Variables`, rep(c(""), max_len - length(`Quantitative Variables`)))
+  
+  `Categorical Variables` <- c(`Categorical Variables`, rep(c(""), max_len - length(`Categorical Variables`)))
+  
+  names <- data.frame(`Character Variables`=`Qualitative Variables`, 
+                      `Quantitative Variables`= `Quantitative Variables`, 
+                      `Categorical Variables`= `Categorical Variables`)
+  names
+      
+})
+
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### Summary Measures for Quantitative Variables
+```{r}
+
+renderTable({
+  req(input$file)
+  df <- read_csv(input$file$datapath)
+  m <- descr(df, 
+          stats = c("mean", "sd", "min", "q1", "med", "q3", "max", "iqr", "cv"),
+          transpose = FALSE) 
+   class(m) <-"matrix"
+   `Summary Measure` <- c("Mean", "Std. Deviation", "Minimum", "1st Quartile", "Median", "3rd Quartile", "Maximum", "Inter Quartile Range", "Coefficient of Variation")
+   m <- cbind(`Summary Measure`, m)
+  m
+})
+
+
+```
+
+
+
+
+Row
+----------------------------------------------------------
+### Summary Measures for Qualitative Variables
+
+
+
+```{r}
+
+renderUI({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+df <- df %>% 
+  mutate_if(function(col){
+    if(is.character(col) & length(unique(col)) < 10){
+      return(TRUE)
+    }else{
+      return(FALSE)
+    }
+  },factor)
+ varSelectInput("Cat. Variable", "Select Categorical Variable:", Filter(is.factor, df),
+                    selected = NULL)
+  })
+
+
+
+
+```
+
+
+```{r}
+
+renderTable({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+df <- df %>% 
+  mutate_if(function(col){
+    if(is.character(col) & length(unique(col)) < 10){
+      return(TRUE)
+    }else{
+      return(FALSE)
+    }
+  },factor)
+
+Group <- levels(df[[input$`Cat. Variable`]])
+Frequency <- summary(df[[input$`Cat. Variable`]])
+Percentage <- round(summary(df[[input$`Cat. Variable`]])*100/length(df[[input$`Cat. Variable`]]),2)
+
+Table <- cbind(Group, Frequency, Percentage)
+
+})
+
+```
+
+
+
+Correlations
+=========================================================
+
+Row
+-----------------------------------------------------------------------
+
+### What actually is "Normal" data?
+```{r}
+renderValueBox({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  valueBox("Click Me!",href= "#section-help" ,color = "info", icon="ion-android-happy")
+})
+```
+
+Row
+-----------------------------------------------------------------------
+
+```{r}
+get_heatmap <- function(df,cor_type = "pearson"){
+cmat <- cor(df %>% select_if(is.numeric),
+            use = "complete.obs",method = cor_type) %>% as.data.frame() 
+cmat <- cmat %>% mutate(`Variable 1` = names(cmat))
+cmat <- cmat %>% pivot_longer(-`Variable 1`,names_to = "Variable 2",values_to = "corr")
+
+ggheatmap <- ggplot(cmat, aes(`Variable 1`, `Variable 2`, fill = corr))+
+  geom_tile(color = "white")+
+  geom_text(aes(`Variable 1`, `Variable 2`, label = round(corr,3)), color = "black", size = 4) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name=paste0(c(cor_type,"\nCorrelation"))) +
+  theme_minimal()+ # minimal theme
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 12, hjust = 1))+
+  coord_fixed()
+return(ggheatmap)
+}
+
+
+```
+
+
+### Pearson
+The strength and direction of linear relationship given data is normal
+```{r}
+renderPlot({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  get_heatmap(df)
+})
+```
+
+
+
+### Spearman
+
+The strength and direction of linear relationship despite data not being normal
+```{r}
+renderPlot({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  get_heatmap(df,cor_type="spearman")
+})
+```
+
+Missing Values
+==========================================
+Row
+-------------------------------------------
+### Missing value matrix
+The variables have been arranged from left to right in descending order of missing values. 
+
+```{r}
+renderPlot({
+  req(input$file)
+  df <- read_csv(input$file$datapath)
+  vis_miss(df, sort_miss = TRUE)
+})
+
+```
+
+
+By variable plots
+==========================================================
+
+Column {.sidebar}
+----------------------------------------------------------
+
+
+```{r}
+renderUI({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+varSelectInput("Variable 1", "Select Quantitative Variable:", Filter(is.numeric, df),
+                   selected = NULL)
+  #selectInput("Variable 1", label = "Select Numeric Variable:", choices = colnames(df))
+})
+
+```
+
+```{r}
+renderUI({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+df <- df %>% 
+  mutate_if(function(col){
+    if(is.character(col) & length(unique(col)) < 10){
+      return(TRUE)
+    }else{
+      return(FALSE)
+    }
+  },factor)
+ varSelectInput("Variable 2", "Select Categorical Variable:", Filter(is.factor, df),
+                    selected = NULL)
+  #selectInput("Variable 2", label = "Select Categorical Variable:", choices = colnames(df))
+})
+```
+
+
+Column 
+-----------------------------------------------------------------------
+### Boxplot of Quantitative variable by Categorical variable
+```{r}
+renderPlotly({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+   plot_ly(df,
+              x = ~df[[input$`Variable 1`]],
+              color = ~df[[input$`Variable 2`]],
+              colors = "Paired",
+              type = "box") %>%
+  layout(title = "",
+         xaxis = list(title = "" ,
+                      zeroline = FALSE))
+})
+```
+
+
+Column 
+-----------------------------------------------------------------------
+
+### Distribution of Categorical Variable
+
+```{r}
+renderPlotly({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  
+  df %>%
+    count(var = df[[input$`Variable 2`]], name = "count") %>%
+    plot_ly( x = ~var, y = ~ count, type = "bar", marker = list(color = '#008ae6',
+                           line = list(color = '#008ae6', width = 2)), hoverinfo = "x+y") %>%
+    add_text(text = ~paste0( " (",   scales::percent(count/sum(count)),")"), 
+           textposition = "bottom", 
+           textfont = list(size = 12, color = "white"), 
+           showlegend = FALSE) %>%
+    layout(xaxis = list(title = ""), yaxis = list(title = ""))
+    
+})
+```
+
+### Distribution of Quantitative Variable
+```{r}
+renderPlotly({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+  plot_ly(x = df[[input$`Variable 1`]], type = "histogram",  marker = list(color = "#008ae6",
+                            line = list(color = "darkgray",
+                                        width = 1)))
+})
+```
+
+
+Scatter plots
+==========================================================
+
+
+Column {.sidebar}
+----------------------------------------------------------
+
+
+```{r}
+renderUI({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+varSelectInput("Variable 3", "Select Quantitative Variable 1:", Filter(is.numeric, df),
+                   selected = NULL)
+  #selectInput("Variable 1", label = "Select Numeric Variable:", choices = colnames(df))
+})
+
+```
+
+
+```{r}
+renderUI({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+varSelectInput("Variable 4", "Select Quantitative Variable 2:", Filter(is.numeric, df),
+                   selected = NULL)
+  })
+```
+
+
+Column
+-----------------------------------------------------------
+
+
+### Scatter plot of Quantitative Variables
+```{r}
+renderPlotly({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+`Quantitative Variable 1` = df[[input$`Variable 3`]]
+`Quantitative Variable 2` = df[[input$`Variable 4`]]
+plot_ly(data = df, x = ~`Quantitative Variable 1`, y = ~`Quantitative Variable 2`)
+  
+})
+```
+
+
+
+Help!
+========================================================
+
+Row
+---------------------------------------------------------
+
+### They are variables that represent a measurable quantity as a number.
+```{r}
+renderValueBox({
+  valueBox("Quantitative Variables",color = "info", icon="fa-sort-numeric-up")
+})
+```
+
+Row
+---------------------------------------------------------
+### They are variables that are not quantitative.
+```{r}
+renderValueBox({
+  valueBox("Qualitative Variables",color = "info", icon="fa-sort-alpha-up")
+})
+```
+
+
+Row
+---------------------------------------------------------
+### They are variables that can take on one of a limited number of possible values.
+```{r}
+renderValueBox({
+  valueBox("Categorical Variables",color = "info", icon="fa-list-alt")
+})
+```
+
+Row
+---------------------------------------------------------
+### Their values do not result from measuring or counting and do not have a limited number of possible values.
+```{r}
+renderValueBox({
+  valueBox("Character Variables",color = "info", icon="fa-sort-alpha-up")
+})
+```
+
+Row
+---------------------------------------------------------
+### "Normal" data are data that are drawn (come from) a population that has a normal distribution. So is the population normal? Well you need to run a test...
+
+```{r}
+renderValueBox({
+  valueBox("Normal Data",color = "danger", icon="fa-exclamation")
+})
+```
+
+
+ 
