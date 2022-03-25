@@ -185,9 +185,9 @@ Row
 renderTable({
   req(input$file)
   df <- read_csv(input$file$datapath)
-  m <- descr(df, 
+  m <- round(descr(df, 
           stats = c("mean", "sd", "min", "q1", "med", "q3", "max", "iqr", "cv"),
-          transpose = FALSE) 
+          transpose = FALSE),2) 
    class(m) <-"matrix"
    `Summary Measure` <- c("Mean", "Std. Deviation", "Minimum", "1st Quartile", "Median", "3rd Quartile", "Maximum", "Inter Quartile Range", "Coefficient of Variation")
    m <- cbind(`Summary Measure`, m)
@@ -458,6 +458,26 @@ varSelectInput("Variable 4", "Select Quantitative Variable 2:", Filter(is.numeri
 ```
 
 
+
+```{r}
+renderUI({
+  req(input$file)
+df <- read_csv(input$file$datapath)
+df <- df %>% 
+  mutate_if(function(col){
+    if(is.character(col) & length(unique(col)) < 10){
+      return(TRUE)
+    }else{
+      return(FALSE)
+    }
+  },factor)
+ varSelectInput("Variable 5", "Color by Categorical Variable:", Filter(is.factor, df),
+                    selected = NULL)
+  #selectInput("Variable 2", label = "Select Categorical Variable:", choices = colnames(df))
+})
+```
+
+
 Column
 -----------------------------------------------------------
 
@@ -469,11 +489,13 @@ renderPlotly({
 df <- read_csv(input$file$datapath)
 `Quantitative Variable 1` = df[[input$`Variable 3`]]
 `Quantitative Variable 2` = df[[input$`Variable 4`]]
-plot_ly(data = df, x = ~`Quantitative Variable 1`, y = ~`Quantitative Variable 2`)
+plot_ly(data = df, x = ~`Quantitative Variable 1`, y = ~`Quantitative Variable 2`, 
+        color = ~df[[input$`Variable 5`]],colors = "Set1") %>% 
+  layout(xaxis = list(title = as.character(input$`Variable 3`)),
+         yaxis = list(title = as.character(input$`Variable 4`)))
   
 })
 ```
-
 
 
 Help!
